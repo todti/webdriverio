@@ -53,11 +53,9 @@ export interface AllureReporterOptions extends ReporterConfig {
     reportedEnvironmentVars?: Record<string, string>
 }
 
-export interface WDIORunnable {
-    title: string
-    file: string
-    parent?: WDIORunnable
-}
+export type WDIORunnable =
+    | { title: string; file: string; parent?: WDIORunnable }
+    | { title: string; file?: string; parent?: WDIORunnable }
 
 export interface AddTestInfoEventArgs {
     file: string

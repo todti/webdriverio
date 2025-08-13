@@ -2,227 +2,213 @@ import type { ReporterRuntime } from 'allure-js-commons/sdk/reporter'
 import type {
     WDIOHookEndMessage,
     WDIOHookStartMessage,
-    WDIORuntimeMessage, WDIOSuiteStartMessage,
-    WDIOTestEndMessage, WDIOTestInfoMessage,
-    WDIOTestStartMessage
+    WDIORuntimeMessage,
+    WDIOSuiteStartMessage,
+    WDIOTestEndMessage,
+    WDIOTestInfoMessage,
+    WDIOTestStartMessage,
 } from './types.js'
 import { findLast, findLastIndex, last } from './utils.js'
 
 export class AllureReportState {
-    _scopesStack: string[] = []
-    _executablesStack: string[] = []
-    _fixturesStack: string[] = []
-    _currentTestUuid?: string
+    private _scopesStack: string[] = []
+    private _executablesStack: string[] = []
+    private _fixturesStack: string[] = []
+    private _currentTestUuid?: string
     messages: WDIORuntimeMessage[] = []
 
-    constructor(private allureRuntime: ReporterRuntime) {
+    constructor(private allureRuntime: ReporterRuntime) {}
+
+    get hasPendingSuite(): boolean {
+        const s = findLastIndex(this.messages, ({ type }) => type === 'allure:suite:start')
+        const e = findLastIndex(this.messages, ({ type }) => type === 'allure:suite:end')
+        return s > e
     }
 
-    get hasPendingSuite() {
-        const lastSuiteStartMessage = findLastIndex(this.messages, ({ type }) => type === 'allure:suite:start')
-        const lastSuiteEndMessage = findLastIndex(this.messages, ({ type }) => type === 'allure:suite:end')
-
-        return lastSuiteStartMessage > lastSuiteEndMessage
+    get hasPendingTest(): boolean {
+        const s = findLastIndex(this.messages, ({ type }) => type === 'allure:test:start')
+        const e = findLastIndex(this.messages, ({ type }) => type === 'allure:test:end')
+        return s > e
     }
 
-    get hasPendingTest() {
-        const lastTestStartMessage = findLastIndex(this.messages, ({ type }) => type === 'allure:test:start')
-        const lastTestEndMessage = findLastIndex(this.messages, ({ type }) => type === 'allure:test:end')
-
-        return lastTestStartMessage > lastTestEndMessage
+    get hasPendingStep(): boolean {
+        const s = findLastIndex(this.messages, ({ type }) => type === 'step_start')
+        const e = findLastIndex(this.messages, ({ type }) => type === 'step_stop')
+        return s > e
     }
 
-    get hasPendingStep() {
-        const lastStepStartMessage = findLastIndex(this.messages, ({ type }) => type === 'step_start')
-        const lastStepEndMessage = findLastIndex(this.messages, ({ type }) => type === 'step_stop')
-
-        return lastStepStartMessage > lastStepEndMessage
+    get hasPendingHook(): boolean {
+        const s = findLastIndex(this.messages, ({ type }) => type === 'allure:hook:start')
+        const e = findLastIndex(this.messages, ({ type }) => type === 'allure:hook:end')
+        return s > e
     }
 
-    get hasPendingHook() {
-        const lastHookStartMessage = findLastIndex(this.messages, ({ type }) => type === 'allure:hook:start')
-        const lastHookEndMessage = findLastIndex(this.messages, ({ type }) => type === 'allure:hook:end')
-
-        return lastHookStartMessage > lastHookEndMessage
+    get currentFeature(): string | undefined {
+        const m = findLast(
+            this.messages,
+            ({ type, data }) => type === 'allure:suite:start' && Boolean((data as WDIOSuiteStartMessage['data']).feature),
+        ) as WDIOSuiteStartMessage | undefined
+        return m?.data?.name
     }
 
-    get currentFeature() {
-        const featureSuiteMessage = findLast(this.messages, ({ type, data }) => type === 'allure:suite:start' && Boolean(data.feature)) as WDIOSuiteStartMessage | undefined
-
-        return featureSuiteMessage?.data?.name
-    }
-
-    _openScope() {
+    private async _openScope(): Promise<void> {
         const scopeUuid = this.allureRuntime.startScope()
-
         this._scopesStack.push(scopeUuid)
     }
 
-    _closeScope() {
-        const scopeUuid = this._scopesStack.pop()!
-
-        this.allureRuntime.writeScope(scopeUuid)
+    private async _closeScope(): Promise<void> {
+        const scopeUuid = this._scopesStack.pop()
+        if (scopeUuid) {
+            await this.allureRuntime.writeScope(scopeUuid)
+        }
     }
 
-    _writeLastTest() {
-        if (!this._currentTestUuid) {
-            return
-        }
-
-        this._closeScope()
-        this.allureRuntime.writeTest(this._currentTestUuid)
+    private async _writeLastTest(): Promise<void> {
+        if (!this._currentTestUuid) {return}
+        await this._closeScope()
+        await this.allureRuntime.writeTest(this._currentTestUuid)
         this._currentTestUuid = undefined
     }
 
-    _startSuite() {
+    private async _startSuite(): Promise<void> {
         if (this._currentTestUuid) {
-            this._writeLastTest()
+            await this._writeLastTest()
         }
-
-        this._openScope()
+        await this._openScope()
     }
 
-    _endSuite(write: boolean = false) {
-        this._closeScope()
-
-        if (!write) {
-            return
+    private async _endSuite(write: boolean = false): Promise<void> {
+        await this._closeScope()
+        if (write) {
+            await this._writeLastTest()
         }
-
-        this._writeLastTest()
     }
 
-    _startTest(message: WDIOTestStartMessage) {
+    private async _startTest(message: WDIOTestStartMessage): Promise<void> {
         if (this._currentTestUuid) {
-            this._writeLastTest()
+            await this._writeLastTest()
         }
-
-        this._openScope()
+        await this._openScope()
 
         const { name, start } = message.data
-        const testUuid = this.allureRuntime.startTest({
-            name,
-            start
-        }, this._scopesStack)
+        const testUuid = this.allureRuntime.startTest(
+            {
+                name,
+                start,
+            },
+            this._scopesStack,
+        )
 
         this._executablesStack.push(testUuid)
         this._currentTestUuid = testUuid
     }
 
-    _addTestInfo(message: WDIOTestInfoMessage) {
+    private _addTestInfo(message: WDIOTestInfoMessage): void {
         const { fullName } = message.data
         const testUuid = last(this._executablesStack)
-
+        if (!testUuid) {return}
         this.allureRuntime.updateTest(testUuid, (r) => {
             r.fullName = fullName
         })
     }
 
-    _endTest(message: WDIOTestEndMessage, write: boolean = false) {
+    private async _endTest(message: WDIOTestEndMessage, write: boolean = false): Promise<void> {
         const { status, stage, stop, duration, statusDetails } = message.data
-        const testUuid = this._executablesStack.pop()!
+        const testUuid = this._executablesStack.pop()
+        if (!testUuid) {return}
 
         this.allureRuntime.updateTest(testUuid, (r) => {
             r.status = status
-
-            if (stage) {
-                r.stage = stage
-            }
-
-            if (statusDetails) {
-                r.statusDetails = statusDetails
-            }
-
+            if (stage) {r.stage = stage}
+            if (statusDetails) {r.statusDetails = statusDetails}
         })
-        this.allureRuntime.stopTest(testUuid, { stop, duration })
+        await this.allureRuntime.stopTest(testUuid, { stop, duration })
 
-        if (!write) {
-            return
+        if (write) {
+            await this._writeLastTest()
         }
-
-        this._writeLastTest()
     }
 
-    _startHook(message: WDIOHookStartMessage) {
+    private async _startHook(message: WDIOHookStartMessage): Promise<void> {
         const { name, type, start } = message.data
 
         if (/after all/i.test(name) && this._currentTestUuid) {
-            this._writeLastTest()
+            await this._writeLastTest()
         }
 
         const scopeUuid = last(this._scopesStack)
-        const hookUuid = this.allureRuntime.startFixture(scopeUuid, type, {
-            name,
-            start
-        })!
-
-        this._fixturesStack.push(hookUuid)
+        const hookUuid = this.allureRuntime.startFixture(scopeUuid, type, { name, start })
+        if (hookUuid) {
+            this._fixturesStack.push(hookUuid)
+        }
     }
 
-    _endHook(message: WDIOHookEndMessage) {
+    private async _endHook(message: WDIOHookEndMessage): Promise<void> {
         const { status, statusDetails, duration, stop } = message.data
-        const hookUuid = this._fixturesStack.pop()!
+        const hookUuid = this._fixturesStack.pop()
+        if (!hookUuid) {return}
 
         this.allureRuntime.updateFixture(hookUuid, (r) => {
             r.status = status
-
-            if (statusDetails) {
-                r.statusDetails = statusDetails
-            }
+            if (statusDetails) {r.statusDetails = statusDetails}
         })
-        this.allureRuntime.stopFixture(hookUuid, { stop, duration })
+        await this.allureRuntime.stopFixture(hookUuid, { stop, duration })
     }
 
-    pushRuntimeMessage(message: WDIORuntimeMessage) {
+    pushRuntimeMessage(message: WDIORuntimeMessage): void {
         this.messages.push(message)
     }
 
-    processRuntimeMessage() {
-        // console.log(this._messages)
-
-        this.messages.forEach((message, i) => {
+    async processRuntimeMessage(): Promise<void> {
+        console.log('processRuntimeMessage', this.messages)
+        for (let i = 0; i < this.messages.length; i++) {
+            const message = this.messages[i]
             const lastMessage = i === this.messages.length - 1
 
-            if (message.type === 'allure:suite:start') {
-                this._startSuite()
-                return
-            }
+            switch (message.type) {
+            case 'allure:suite:start':
+                await this._startSuite()
+                continue
 
-            if (message.type === 'allure:suite:end') {
-                this._endSuite(lastMessage)
-                return
-            }
+            case 'allure:suite:end':
+                await this._endSuite(lastMessage)
+                continue
 
-            if (message.type === 'allure:test:start') {
-                this._startTest(message)
-                return
-            }
+            case 'allure:test:start':
+                await this._startTest(message)
+                continue
 
-            if (message.type === 'allure:test:info') {
+            case 'allure:test:info':
                 this._addTestInfo(message)
-                return
-            }
+                continue
 
-            if (message.type === 'allure:test:end') {
-                this._endTest(message, lastMessage)
-                return
-            }
+            case 'allure:test:end':
+                await this._endTest(message, lastMessage)
+                continue
 
-            if (message.type === 'allure:hook:start') {
-                this._startHook(message)
-                return
-            }
+            case 'allure:hook:start':
+                await this._startHook(message)
+                continue
 
-            if (message.type === 'allure:hook:end') {
-                this._endHook(message)
-                return
+            case 'allure:hook:end':
+                await this._endHook(message)
+                continue
+
+            default:
+                break
             }
 
             if (!this._currentTestUuid) {
-                return
+                continue
             }
+            await this.allureRuntime.applyRuntimeMessages(this._currentTestUuid, [message])
+        }
 
-            this.allureRuntime.applyRuntimeMessages(this._currentTestUuid, [message])
-        })
+        if (this._currentTestUuid) {
+            await this._writeLastTest()
+        }
+        while (this._scopesStack.length > 0) {
+            await this._closeScope()
+        }
     }
 }
