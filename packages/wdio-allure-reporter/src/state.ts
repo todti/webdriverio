@@ -325,13 +325,25 @@ export class AllureReportState {
                 break
             }
 
+            const msgType = (message as { type: string }).type
+            const isGlobalMessage = msgType === 'global_attachment_content' ||
+                msgType === 'global_attachment_path' ||
+                msgType === 'global_error'
+
             const hookUuid = this._fixturesStack.at(-1)
             const target = hookUuid ?? this._currentTestUuid
 
             if (!target) {
-                if (this._isCapturingPendingHook) {
+                if (isGlobalMessage) {
+                    this.allureRuntime.applyRuntimeMessages('', [message as RuntimeMessage])
+                } else if (this._isCapturingPendingHook) {
                     this._pendingHookMessages.push(message)
                 }
+                continue
+            }
+
+            if (isGlobalMessage) {
+                this.allureRuntime.applyRuntimeMessages(target, [message as RuntimeMessage])
                 continue
             }
 

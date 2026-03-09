@@ -7,6 +7,9 @@ import {
     descriptionHtml,
     epic,
     feature,
+    globalAttachment as allureGlobalAttachment,
+    globalAttachmentPath as allureGlobalAttachmentPath,
+    globalError as allureGlobalError,
     historyId,
     issue,
     label,
@@ -317,6 +320,50 @@ export async function step<T = void>(name: string, body: (context: StepContext) 
     return allureStep(name, body)
 }
 
+/**
+ * Add global attachment (appears in report globals, not tied to a specific test).
+ * Re-export from allure-js-commons.
+ * @name addGlobalAttachment
+ */
+export async function addGlobalAttachment (
+    name: string,
+    content: string | Buffer,
+    typeOrOptions: string | { contentType?: string; fileExtension?: string }
+) {
+    return allureGlobalAttachment(name, content, typeOrOptions as Parameters<typeof allureGlobalAttachment>[2])
+}
+
+/**
+ * Add global attachment from file path. Re-export from allure-js-commons.
+ * @name addGlobalAttachmentPath
+ */
+export async function addGlobalAttachmentPath (
+    name: string,
+    filePath: string,
+    typeOrOptions: string | { contentType?: string; fileExtension?: string }
+) {
+    return allureGlobalAttachmentPath(name, filePath, typeOrOptions as Parameters<typeof allureGlobalAttachmentPath>[2])
+}
+
+/** Re-export from allure-js-commons */
+export const globalAttachment = allureGlobalAttachment
+
+/** Re-export from allure-js-commons */
+export const globalAttachmentPath = allureGlobalAttachmentPath
+
+/**
+ * Add global error (appears in report globals, e.g. setup/teardown failures).
+ * Re-export from allure-js-commons.
+ * @name addGlobalError
+ * @param {object} details - { message?: string, trace?: string, actual?: string, expected?: string }
+ */
+export async function addGlobalError (details: { message?: string; trace?: string; actual?: string; expected?: string }) {
+    return allureGlobalError(details)
+}
+
+/** Re-export from allure-js-commons: globalError({ message, trace }) */
+export const globalError = allureGlobalError
+
 export default {
     addLabel,
     addLink,
@@ -339,5 +386,11 @@ export default {
     endStep,
     addStep,
     addArgument,
-    step
+    step,
+    addGlobalAttachment,
+    addGlobalAttachmentPath,
+    globalAttachment,
+    globalAttachmentPath,
+    addGlobalError,
+    globalError
 }

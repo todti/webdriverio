@@ -64,6 +64,21 @@ export function getResultFiles (resultsDir: any, patterns: RegExp[]) {
     return fs.readdirSync(resultsDir).filter((file) => patterns.some((pattern) => pattern.test(file)))
 }
 
+export interface GlobalsPayload {
+    attachments: Array<{ name: string; type?: string; source: string; timestamp?: number }>
+    errors: Array<{ message?: string; trace?: string; timestamp?: number }>
+}
+
+export function getGlobals (resultsDir: string): Record<string, GlobalsPayload> {
+    const globalsFiles = getResultFiles(resultsDir, [/-globals\.json$/])
+    const out: Record<string, GlobalsPayload> = {}
+    for (const file of globalsFiles) {
+        const content = fs.readFileSync(path.join(resultsDir, file), 'utf-8')
+        out[file] = JSON.parse(content) as GlobalsPayload
+    }
+    return out
+}
+
 export function clean (resultsDir: any) {
     return rimraf.sync(resultsDir)
 }
