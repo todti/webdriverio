@@ -131,5 +131,10 @@
   },
   "engines": {
     "pnpm": ">=8.15.3"
+  },
+  "pnpm": {
+    "overrides": {
+      "axios": "^1.13.5"
+    }
   }
 }
